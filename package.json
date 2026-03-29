@@ -1,0 +1,42 @@
+{
+  "name": "shelby-docs-mcp",
+  "version": "1.0.0",
+  "description": "A lightweight read-only MCP server for Shelby documentation.",
+  "type": "module",
+  "bin": {
+    "shelby-docs-mcp": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsc -p tsconfig.json",
+    "check": "npm run build && node dist/cli.js --check",
+    "prepare": "npm run build",
+    "start": "node dist/cli.js"
+  },
+  "keywords": [
+    "mcp",
+    "shelby",
+    "documentation",
+    "claude-code",
+    "codex"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
