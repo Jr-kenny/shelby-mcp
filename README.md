@@ -21,10 +21,10 @@ Next page content...
 
 ## Quickstart for Claude Code
 
-After you publish this repo, add the MCP server with `npx`:
+Add the MCP server with `npx`:
 
 ```bash
-claude mcp add --transport stdio shelby-docs -- npx -y github:your-org/shelby-docs-mcp
+claude mcp add --transport stdio shelby-docs -- npx -y github:Jr-kenny/shelby-mcp
 ```
 
 Then start Claude Code:
@@ -50,7 +50,7 @@ Create `.cursor/mcp.json` and add:
   "mcpServers": {
     "shelby-docs": {
       "command": "npx",
-      "args": ["-y", "github:your-org/shelby-docs-mcp"]
+      "args": ["-y", "github:Jr-kenny/shelby-mcp"]
     }
   }
 }
@@ -69,7 +69,7 @@ Add this to `.vscode/mcp.json`:
     "shelby-docs": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "github:your-org/shelby-docs-mcp"]
+      "args": ["-y", "github:Jr-kenny/shelby-mcp"]
     }
   },
   "inputs": []
@@ -81,7 +81,7 @@ Add this to `.vscode/mcp.json`:
 Add the MCP server globally:
 
 ```bash
-gemini mcp add --scope user shelby-docs npx -y github:your-org/shelby-docs-mcp
+gemini mcp add --scope user shelby-docs npx -y github:Jr-kenny/shelby-mcp
 ```
 
 Confirm it is registered:
@@ -92,25 +92,37 @@ gemini mcp list
 
 ## Quickstart for Codex
 
-Add this to your Codex MCP config:
+Add the MCP server with the Codex CLI:
+
+```bash
+codex mcp add shelby-docs -- npx -y github:Jr-kenny/shelby-mcp
+```
+
+Confirm it is registered:
+
+```bash
+codex mcp list
+```
+
+Alternatively, add this to your Codex MCP config:
 
 ```toml
 [mcp_servers.shelby-docs]
 command = "npx"
-args = ["-y", "github:your-org/shelby-docs-mcp"]
+args = ["-y", "github:Jr-kenny/shelby-mcp"]
 ```
 
-Then restart Codex so it reloads the MCP config.
+Then restart Codex if needed so it reloads the MCP config.
 
 ## Quickstart from source
 
-If you want to run the repository locally before publishing it:
+If you want to run the repository locally from source:
 
 1. Clone the repo:
 
    ```bash
-   git clone https://github.com/your-org/shelby-docs-mcp
-   cd shelby-docs-mcp
+   git clone https://github.com/Jr-kenny/shelby-mcp
+   cd shelby-mcp
    ```
 
 2. Install dependencies and build:
@@ -123,10 +135,16 @@ If you want to run the repository locally before publishing it:
 3. Run the local entrypoint:
 
    ```bash
-   node /absolute/path/to/shelby-docs-mcp/dist/cli.js
+   node /absolute/path/to/shelby-mcp/dist/cli.js
    ```
 
 Then substitute that `node .../dist/cli.js` command in any MCP client config if you prefer source-based usage over `npx`.
+
+## Repository
+
+GitHub repository:
+
+- [https://github.com/Jr-kenny/shelby-mcp](https://github.com/Jr-kenny/shelby-mcp)
 
 ## Tool endpoints
 
