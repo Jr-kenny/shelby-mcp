@@ -8,6 +8,7 @@
   },
   "files": [
     "dist",
+    "data",
     "README.md",
     "LICENSE"
   ],

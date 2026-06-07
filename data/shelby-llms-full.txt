@@ -1,0 +1,9 @@
+PLACEHOLDER — replace this file with a real capture of https://docs.shelby.xyz/llms-full.txt
+
+This file is the offline fallback bundle for shelby-docs-mcp. It is intentionally not a
+valid docs bundle yet (it has no "# Title (/path)" page markers), so the server will not
+serve this placeholder as documentation.
+
+To populate it: open https://docs.shelby.xyz/llms-full.txt in a real browser (to pass the
+Vercel security checkpoint), then save the raw text over this file. The next build will
+ship it as the offline fallback.

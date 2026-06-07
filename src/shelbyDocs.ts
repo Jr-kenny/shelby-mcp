@@ -1,5 +1,50 @@
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 const DEFAULT_DOCS_URL = "https://docs.shelby.xyz/llms-full.txt";
+const DEFAULT_CACHE_FILE = path.join(os.homedir(), ".gemini", "antigravity", "cache", "shelby-llms-full.txt");
+const DEFAULT_REFRESH_HOURS = 24;
 const DEFAULT_TIMEOUT_MS = 15000;
+
+// Offline fallback shipped with the package (see package.json "files": ["data"]).
+// Populated from a known-good capture of https://docs.shelby.xyz/llms-full.txt so the
+// server still works when the live source is unreachable or gated behind a bot challenge.
+const BUNDLED_FALLBACK_FILE = fileURLToPath(new URL("../data/shelby-llms-full.txt", import.meta.url));
+
+// The live docs site can sit behind a bot/security checkpoint that returns an HTML page
+// with HTTP 200. That is not the docs bundle, so we must never cache or serve it.
+function looksLikeDocsBundle(text: string): boolean {
+  if (!text || !text.trim()) {
+    return false;
+  }
+
+  const head = text.slice(0, 4000).toLowerCase();
+  if (head.includes("<!doctype html") || head.includes("<html") || head.includes("security checkpoint")) {
+    return false;
+  }
+
+  // A valid bundle has multiple "# Title (/path)" page markers.
+  const marker = /^#\s+(.+?)\s+\((\/[^)\s]*)\)\s*/gm;
+  let count = 0;
+  while (marker.exec(text)) {
+    count += 1;
+    if (count >= 2) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function readBundledFallback(): Promise<string | undefined> {
+  try {
+    return await fs.readFile(BUNDLED_FALLBACK_FILE, "utf8");
+  } catch {
+    return undefined;
+  }
+}
 
 export interface ShelbyDocPage {
   id: string;
@@ -18,7 +63,9 @@ export interface ShelbyDocsSnapshot {
 }
 
 interface ServiceOptions {
+  cacheFile?: string;
   docsSource?: string;
+  refreshHours?: number;
   timeoutMs?: number;
 }
 
@@ -29,22 +76,28 @@ interface SearchResult {
 }
 
 export class ShelbyDocsService {
+  private readonly cacheFile: string;
   private readonly docsSource: string;
+  private readonly refreshHours: number;
   private readonly timeoutMs: number;
   private snapshot: ShelbyDocsSnapshot | undefined;
   private loadPromise: Promise<ShelbyDocsSnapshot> | undefined;
 
   constructor(options: ServiceOptions = {}) {
+    this.cacheFile = options.cacheFile ?? process.env.SHELBY_DOCS_CACHE_FILE ?? DEFAULT_CACHE_FILE;
     this.docsSource = options.docsSource ?? process.env.SHELBY_DOCS_URL ?? DEFAULT_DOCS_URL;
+    this.refreshHours = options.refreshHours ?? readNumber(process.env.SHELBY_DOCS_REFRESH_HOURS, DEFAULT_REFRESH_HOURS);
     this.timeoutMs = options.timeoutMs ?? readNumber(process.env.SHELBY_DOCS_TIMEOUT_MS, DEFAULT_TIMEOUT_MS);
   }
 
   async getSnapshot(forceRefresh = false): Promise<ShelbyDocsSnapshot> {
-    if (this.snapshot && !forceRefresh) {
+    const snapshotIsFresh = this.snapshot ? isFresh(Date.parse(this.snapshot.fetchedAt), this.refreshHours) : false;
+
+    if (this.snapshot && !forceRefresh && snapshotIsFresh) {
       return this.snapshot;
     }
 
-    if (!this.loadPromise || forceRefresh) {
+    if (!this.loadPromise || forceRefresh || !snapshotIsFresh) {
       const load = this.loadSnapshot();
       this.loadPromise = load.finally(() => {
         if (this.loadPromise === load) {
@@ -153,12 +206,51 @@ export class ShelbyDocsService {
   }
 
   private async loadSnapshot(): Promise<ShelbyDocsSnapshot> {
-    const rawText = await readHttpSource(this.docsSource, this.timeoutMs);
+    const rawText = await this.loadRawBundle();
     return {
       fetchedAt: new Date().toISOString(),
       pages: parseShelbyDocsBundle(rawText),
       source: this.docsSource
     };
+  }
+
+  private async loadRawBundle(): Promise<string> {
+    const cache = await readCacheFile(this.cacheFile);
+    // Only trust a fresh cache if it actually looks like the docs bundle (not a stale
+    // capture of a bot-checkpoint HTML page from a previous broken run).
+    if (cache && isFresh(cache.updatedAtMs, this.refreshHours) && looksLikeDocsBundle(cache.text)) {
+      return cache.text;
+    }
+
+    try {
+      const freshText = await readSourceText(this.docsSource, this.timeoutMs);
+      if (!looksLikeDocsBundle(freshText)) {
+        // Source returned something that isn't the docs bundle (commonly a bot/security
+        // checkpoint page served with HTTP 200). Do not cache it — fall through to fallbacks.
+        throw new Error(
+          "fetched content does not look like the Shelby docs bundle (the source may be gated behind a bot/security challenge)"
+        );
+      }
+      await fs.mkdir(path.dirname(this.cacheFile), { recursive: true });
+      await fs.writeFile(this.cacheFile, freshText, "utf8");
+      return freshText;
+    } catch (error) {
+      // 1) A stale but still-valid cache beats nothing.
+      if (cache && looksLikeDocsBundle(cache.text)) {
+        return cache.text;
+      }
+
+      // 2) The offline snapshot shipped with the package.
+      const bundled = await readBundledFallback();
+      if (bundled && looksLikeDocsBundle(bundled)) {
+        return bundled;
+      }
+
+      const details = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Unable to load Shelby documentation from ${this.docsSource} and no valid cache or bundled fallback was available: ${details}`
+      );
+    }
   }
 }
 
@@ -382,12 +474,51 @@ function readNumber(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+async function readCacheFile(cacheFile: string): Promise<{ text: string; updatedAtMs: number } | undefined> {
+  try {
+    const [text, stats] = await Promise.all([
+      fs.readFile(cacheFile, "utf8"),
+      fs.stat(cacheFile)
+    ]);
+
+    return {
+      text,
+      updatedAtMs: stats.mtimeMs
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function isFresh(updatedAtMs: number, refreshHours: number): boolean {
+  const maxAgeMs = refreshHours * 60 * 60 * 1000;
+  return Date.now() - updatedAtMs <= maxAgeMs;
+}
+
+async function readSourceText(source: string, timeoutMs: number): Promise<string> {
+  if (source.startsWith("http://") || source.startsWith("https://")) {
+    return readHttpSource(source, timeoutMs);
+  }
+
+  if (source.startsWith("file://")) {
+    return fs.readFile(fileURLToPath(source), "utf8");
+  }
+
+  return fs.readFile(source, "utf8");
+}
+
 async function readHttpSource(source: string, timeoutMs: number): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(source, { signal: controller.signal });
+    const response = await fetch(source, {
+      signal: controller.signal,
+      headers: {
+        "accept": "text/plain,text/markdown;q=0.9,*/*;q=0.8",
+        "user-agent": "Mozilla/5.0 (compatible; shelby-docs-mcp/1.0; +https://github.com/Jr-kenny/shelby-mcp)"
+      }
+    });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} ${response.statusText}`);
     }
